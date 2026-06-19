@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  core:
+    image: nginx:alpine
+    container_name: edge-sentinel-core
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file:
+      - .env.example
+    networks:
+      - edge-sentinel
+    restart: unless-stopped
+
+  agent:
+    image: python:3.11-slim
+    container_name: edge-sentinel-agent
+    command: ["python", "-m", "http.server", "8080"]
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env.example
+    networks:
+      - edge-sentinel
+    restart: unless-stopped
+
+networks:
+  edge-sentinel:
+    driver: bridge
