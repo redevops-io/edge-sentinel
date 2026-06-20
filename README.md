@@ -1,43 +1,50 @@
 # Edge Sentinel
 
-> From legacy firefighting to **reDevOps**: an autonomous agent layer for edge operations.
+> A self-hosted AGPL agentic appliance that helps SMEs stay a step ahead of ransomware and edge-borne threats.
 
 ## The positioning triplet
 
-**Pain** — Edge operations teams drown in dashboards, alerts, and runbooks. Incidents start at the edge but require humans to correlate logs, metrics, and traces before they can act.
+**Pain** — SMEs are drowning in cyber risk: ransomware crews probe branch offices, OT sites, and retail edges faster than lean security teams can respond.
 
-**Legacy** — Existing observability stacks collect telemetry but stop at visualization. They leave the diagnose-decide-remediate loop to operators, which is slow, error-prone, and does not scale.
+**Legacy** — FortiGate stacks, Palo Alto appliances, and managed-SOC retainers promise coverage but land as costly, complex bundles that still leave operators translating alerts into action.
 
-**reDevOps** — Edge Sentinel closes the loop. It pairs an open-source telemetry core with an LLM-powered agent layer that observes, reasons, and remediates at the edge.
+**reDevOps** — Edge Sentinel is the reDevOps answer: a self-hosted, AGPL agentic appliance that pairs open-source network sensors with autonomous response loops you can actually run on-site.
 
 ## What Edge Sentinel does
 
-Edge Sentinel is an open-core operations platform that watches your edge infrastructure, understands incidents in context, and takes safe, auditable actions. It turns raw telemetry into operational decisions without replacing the tools you already run.
+Edge Sentinel fuses proven open-source network defense with an LLM-native agent. OPNsense captures edge traffic, Suricata and Zeek enrich it with detections, and Ollama serves local models that feed an agent built on LangGraph. The Python agent layer, powered by the agent-harness library, triages incidents, summarizes impact in plain owner language, and automates guarded mitigations while preserving full auditability.
 
 ## Value propositions
 
-1. **Cut MTTR with autonomous triage** — The agent correlates signals across logs, metrics, and traces to pinpoint root cause faster than manual investigation.
-2. **Reduce alert fatigue** — Semantic filtering and reasoning suppress noise and escalate only actionable issues.
-3. **Operate at the edge** — Lightweight components run close to your workloads, so decisions happen even when connectivity is intermittent.
-4. **Safe, auditable automation** — Every plan, approval, and action is logged and reviewable.
-5. **Built on open standards** — The OSS core uses OpenTelemetry, so you keep data ownership and avoid vendor lock-in.
+1. **Data ownership, guaranteed by AGPL** — Keep packet captures, flow logs, and remediation history in your own infrastructure with an AGPL-licensed stack you can inspect and extend.
+2. **Owner-language incident reports** — Translate IDS hits and Zeek metadata into plain-language briefings aligned with what business owners need to hear.
+3. **Local AI triage** — Run Ollama-hosted models orchestrated by LangGraph to score ransomware risk and prioritize Suricata alerts without handing data to third parties.
+4. **No subscription creep** — Deploy from source, scale at your pace, and avoid per-seat or per-sensor upcharges.
+5. **Plug-and-play edge appliance** — Drop OPNsense, Suricata, Zeek, and the agent layer into an existing network, connect to your own LLM endpoint, and start closing loops in minutes.
 
 ## Architecture
 
 ```text
-┌─────────────────────────────────────────────┐
-│           Agent Layer (Edge Sentinel)       │
-│  Planner ──► Critic ──► Actor ──► Memory    │
-│         LLM (OpenAI-compatible)             │
-└───────────────────────┬─────────────────────┘
-                        │ control / events
-┌───────────────────────▼─────────────────────┐
-│         OSS Core (OpenTelemetry)            │
-│  Collector ──► Store ──► Alerting rules     │
-└─────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                     OSS Core (network edge)                │
+│  OPNsense firewall  ─┬─► Suricata IDS  ─┬─► Zeek analytics │
+│                      │                  │                  │
+│                      ▼                  ▼                  │
+│              Enriched telemetry & alerts                   │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ event stream / context
+┌──────────────────────▼──────────────────────────────────────┐
+│          Agent Layer (LangGraph + agent-harness)            │
+│  Perception ─► Triage ─► Plan ─► Critique ─► Act ─► Memory  │
+│        (local Ollama models + OpenAI-compatible fallback)   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-The **OSS core** is an OpenTelemetry pipeline: collectors receive telemetry, stores persist it, and alerting rules surface anomalies. The **agent layer** consumes those anomalies, plans remediation steps, critiques them for safety, executes approved actions, and records outcomes to memory.
+- **OPNsense** enforces edge policy and mirrors packet data for inspection.
+- **Suricata** flags signature and anomaly detections, including ransomware indicators.
+- **Zeek** adds protocol-aware context and asset attribution.
+- **Ollama** hosts local language and reasoning models, with LangGraph orchestrating the investigation flow.
+- **Agent layer** leverages agent-harness to coordinate tools, validate remediation plans, and record AGPL-compliant audit trails.
 
 ## Quickstart
 
@@ -46,20 +53,20 @@ The **OSS core** is an OpenTelemetry pipeline: collectors receive telemetry, sto
 git clone https://github.com/example/edge-sentinel.git
 cd edge-sentinel
 
-# 2. Copy and edit environment variables
+# 2. Copy default environment variables
 cp .env.example .env
-# Edit .env with your LLM credentials and OpenTelemetry endpoints
+# Edit .env to set OPENAI_BASE_URL, OPENAI_API_KEY, MODEL, and local sensor endpoints
 
-# 3. Start the stack
-make up
+# 3. Launch the stack (OSS core + agent layer)
+docker-compose up -d
 
-# 4. Run the test suite
-make test
+# 4. Follow the agent and sensor logs
+docker-compose logs -f agent
 
-# 5. Watch logs
-make logs
+# 5. Run tests or linting as needed
+docker-compose exec agent pytest
 ```
 
 ## License
 
-See [LICENSE](./LICENSE).
+Edge Sentinel is released under the [AGPL-3.0 license](./LICENSE) so you can audit, adapt, and redistribute the entire appliance.
