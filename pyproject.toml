@@ -8,10 +8,12 @@ version = "0.1.0"
 description = "Agentic layer service for edge-sentinel"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {text = "AGPL-3.0"}
 dependencies = [
-    "agent-harness @ git+https://github.com/redevops-io/agent-harness.git",
     "httpx>=0.25.0",
+    "pydantic>=2.6",
+    "langgraph>=0.1.6",
+    "agent-harness @ git+https://github.com/redevops-io/agent-harness.git",
 ]
 
 [project.optional-dependencies]
