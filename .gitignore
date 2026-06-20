@@ -1,6 +1,8 @@
-_brief.md
-.sidekick*
-
-node_modules/
+.env
+.env.local
 __pycache__/
 *.pyc
+results/
+content/
+*.log
+.sidekick*

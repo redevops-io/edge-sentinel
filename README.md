@@ -1,72 +1,147 @@
-# Edge Sentinel
+# edge-sentinel — agent layer + SOC dashboard over a real CrowdSec core
 
-> A self-hosted AGPL agentic appliance that helps SMEs stay a step ahead of ransomware and edge-borne threats.
+A sibling of [`agents/billing`](../billing) (the reference vertical slice), same pattern,
+new core. It wraps the running self-hosted **CrowdSec** instance (the open-source
+detection & decision engine) with:
 
-## The positioning triplet
+- an **agent layer** that reads REAL CrowdSec data — live decisions over the LAPI bouncer
+  API + alerts via `cscli ... -o json`, and
+- an **MD3 SOC dashboard** rendered from that live data (no mock data),
 
-**Pain** — SMEs are drowning in cyber risk: ransomware crews probe branch offices, OT sites, and retail edges faster than lean security teams can respond.
+for the demo tenant **Summit Roofing Co.** (a roofing contractor).
 
-**Legacy** — FortiGate stacks, Palo Alto appliances, and managed-SOC retainers promise coverage but land as costly, complex bundles that still leave operators translating alerts into action.
-
-**reDevOps** — Edge Sentinel is the reDevOps answer: a self-hosted, AGPL agentic appliance that pairs open-source network sensors with autonomous response loops you can actually run on-site.
-
-## What Edge Sentinel does
-
-Edge Sentinel fuses proven open-source network defense with an LLM-native agent. OPNsense captures edge traffic, Suricata and Zeek enrich it with detections, and Ollama serves local models that feed an agent built on LangGraph. The Python agent layer, powered by the agent-harness library, triages incidents, summarizes impact in plain owner language, and automates guarded mitigations while preserving full auditability.
-
-## Value propositions
-
-1. **Data ownership, guaranteed by AGPL** — Keep packet captures, flow logs, and remediation history in your own infrastructure with an AGPL-licensed stack you can inspect and extend.
-2. **Owner-language incident reports** — Translate IDS hits and Zeek metadata into plain-language briefings aligned with what business owners need to hear.
-3. **Local AI triage** — Run Ollama-hosted models orchestrated by LangGraph to score ransomware risk and prioritize Suricata alerts without handing data to third parties.
-4. **No subscription creep** — Deploy from source, scale at your pace, and avoid per-seat or per-sensor upcharges.
-5. **Plug-and-play edge appliance** — Drop OPNsense, Suricata, Zeek, and the agent layer into an existing network, connect to your own LLM endpoint, and start closing loops in minutes.
-
-## Architecture
-
-```text
-┌────────────────────────────────────────────────────────────┐
-│                     OSS Core (network edge)                │
-│  OPNsense firewall  ─┬─► Suricata IDS  ─┬─► Zeek analytics │
-│                      │                  │                  │
-│                      ▼                  ▼                  │
-│              Enriched telemetry & alerts                   │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ event stream / context
-┌──────────────────────▼──────────────────────────────────────┐
-│          Agent Layer (LangGraph + agent-harness)            │
-│  Perception ─► Triage ─► Plan ─► Critique ─► Act ─► Memory  │
-│        (local Ollama models + OpenAI-compatible fallback)   │
-└─────────────────────────────────────────────────────────────┘
+```
+CrowdSec (OSS core, LAPI :8086) ──GET /v1/decisions (X-Api-Key)──┐
+                                ──cscli alerts list -o json───────┤
+                                                                  ▼
+                                       app.py (FastAPI, :8203) ──▶ MD3 SOC dashboard
+                                                                   + /api/activity
+                                                                   + /agent/run
+        ▲                                          agentic actions: block_ip (approval-gated)
+        └── seed.py: cscli bouncers add + cscli decisions add (idempotent)   approve_block · triage
 ```
 
-- **OPNsense** enforces edge policy and mirrors packet data for inspection.
-- **Suricata** flags signature and anomaly detections, including ransomware indicators.
-- **Zeek** adds protocol-aware context and asset attribution.
-- **Ollama** hosts local language and reasoning models, with LangGraph orchestrating the investigation flow.
-- **Agent layer** leverages agent-harness to coordinate tools, validate remediation plans, and record AGPL-compliant audit trails.
+## Files
 
-## Quickstart
+| File | Purpose |
+|------|---------|
+| `seed.py` | Bootstrap + seed via `cscli` (docker exec): adds the `summit-agent` bouncer, captures its API key, injects 6 varied decisions/alerts, writes `.env`. Idempotent. |
+| `app.py` | FastAPI service (port 8203): `/health`, `/api/activity`, `/` SOC dashboard, `/agent/run`. |
+| `requirements.txt` | fastapi, uvicorn, httpx. |
+| `Dockerfile` | slim-python image running `uvicorn app:app --port 8203`. |
+| `.env` | Written by `seed.py`: `CROWDSEC_LAPI_URL`, `CROWDSEC_BOUNCER_KEY`, `CROWDSEC_CONTAINER`, `CROWDSEC_FRONT_URL`. |
+
+## CrowdSec bootstrap method (the one that worked)
+
+CrowdSec has **no rich web UI** and is **CLI-managed** via `cscli`. There are two read
+paths, both driven from the running container `agentic-cores-crowdsec-1`:
+
+1. **Decisions** — the bouncer/LAPI path. Create a bouncer credential and read live
+   decisions over the Local API:
+   ```bash
+   KEY=$(sudo docker exec agentic-cores-crowdsec-1 cscli bouncers add summit-agent -o raw)
+   curl -s -H "X-Api-Key: $KEY" http://localhost:8086/v1/decisions
+   ```
+2. **Alerts** — LAPI alert auth needs a machine login, so the simplest reliable path is
+   to shell out to `cscli` (which is already authenticated inside the container):
+   ```bash
+   sudo docker exec agentic-cores-crowdsec-1 cscli alerts list -o json
+   ```
+
+`seed.py` automates step 1 (and re-creates the bouncer if it already exists so the key is
+always usable), injects the seed activity, and writes `.env`.
+
+Key facts for CrowdSec **v1.7.8** (discovered on this host):
+
+- The container is **`agentic-cores-crowdsec-1`**; LAPI is on **http://localhost:8086**.
+- `cscli decisions add` **also creates a matching alert**, so seeding decisions populates
+  both `/v1/decisions` and `cscli alerts list`.
+- LAPI has no public `/health`; a TCP+HTTP response (even `404` on `/`) means the service
+  is up — `crowdsec_connected()` treats any `< 500` as connected.
+- A decision's `duration` counts down (e.g. `3h59m59s`); `scope` is `Ip` or `Range`.
+
+## Seed + run
 
 ```bash
-# 1. Clone and enter the repo
-git clone https://github.com/example/edge-sentinel.git
-cd edge-sentinel
+cd agents/edge-sentinel
 
-# 2. Copy default environment variables
-cp .env.example .env
-# Edit .env to set OPENAI_BASE_URL, OPENAI_API_KEY, MODEL, and local sensor endpoints
+# 1. Bootstrap + seed CrowdSec (idempotent — writes .env with the live bouncer key)
+python3 seed.py
+#   → BOUNCER_KEY=<key>
+#   → SEED_OK bouncer=summit-agent added=6 decisions=6 alerts=6
+#   → Wrote .env
 
-# 3. Launch the stack (OSS core + agent layer)
-docker-compose up -d
+# 2. Install deps + run the service
+pip install -r requirements.txt          # add --break-system-packages on PEP-668 hosts
+python3 -m uvicorn app:app --host 0.0.0.0 --port 8203
+#   app.py auto-loads .env, so CROWDSEC_BOUNCER_KEY is picked up with no manual copy.
 
-# 4. Follow the agent and sensor logs
-docker-compose logs -f agent
-
-# 5. Run tests or linting as needed
-docker-compose exec agent pytest
+# Or with Docker (point the LAPI URL at the CrowdSec service; mount the docker socket
+# for the cscli-backed alert/triage/approve paths):
+docker build -t edge-sentinel .
+docker run --rm -p 8203:8203 \
+  -e CROWDSEC_LAPI_URL=http://host.docker.internal:8086 \
+  -e CROWDSEC_BOUNCER_KEY=<key from .env> \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  edge-sentinel
 ```
 
-## License
+## Environment variables
 
-Edge Sentinel is released under the [AGPL-3.0 license](./LICENSE) so you can audit, adapt, and redistribute the entire appliance.
+| Var | Default | Meaning |
+|-----|---------|---------|
+| `CROWDSEC_LAPI_URL` | `http://localhost:8086` | CrowdSec Local API base (`/v1/decisions`). |
+| `CROWDSEC_BOUNCER_KEY` | _(from .env)_ | `X-Api-Key` for reading decisions — the key from `cscli bouncers add`. |
+| `CROWDSEC_CONTAINER` | `agentic-cores-crowdsec-1` | Container name for `cscli` (alerts, ban enforcement). |
+| `CROWDSEC_FRONT_URL` | `http://192.168.40.8:8086` | Link for the "Open CrowdSec metrics ↗" button (CrowdSec is CLI-managed; this is the LAPI endpoint). |
+| `PORT` | `8203` | uvicorn bind port. |
+| `ANTHROPIC_API_KEY` | _(optional)_ | If set, `triage` adds an LLM reasoning blurb (model `claude-opus-4-8`). The endpoint works fully without it — actions are deterministic CrowdSec/cscli calls. |
+
+## Endpoints
+
+- `GET /health` → `{"status":"ok","core":"crowdsec","connected": <bool>}`
+- `GET /api/activity` → live KPIs (threats blocked, alerts 24h, unique source IPs, last
+  event) + active decisions + alert feed + top scenarios, all from CrowdSec. Cached 10s.
+- `GET /` → the MD3 SOC dashboard from the live data: a **status banner** first (green
+  "All systems normal" / red when there are active threats), **KPI tiles**, an
+  **alert feed grouped by severity** with color pills, a **scenario bar meter**, and an
+  **attack-sources / active-decisions table**. Header shows "Summit Roofing Co.", a green
+  "agent active · core: CrowdSec connected" pill, and an "Open CrowdSec metrics ↗" link.
+- `POST /agent/run` with `{"action": ...}`:
+  - `"block_ip"` `{ip}` → the **approval-gated** sensitive action. Returns
+    `{"status":"pending_approval","summary":"block <ip>"}` — never auto-bans.
+  - `"approve_block"` `{ip, duration?, reason?}` → the approved path: actually runs
+    `cscli decisions add` to enforce the ban, then refreshes the dashboard cache.
+  - `"triage"` → summarizes active decisions + alerts (severity mix, top scenarios);
+    adds a one-line LLM reasoning blurb iff `ANTHROPIC_API_KEY` is set.
+
+## Validation (actually run)
+
+```bash
+# Live decisions via the LAPI bouncer key
+curl -s -H "X-Api-Key: $CROWDSEC_BOUNCER_KEY" http://localhost:8086/v1/decisions
+#   → 45.143.200.14 ssh-bf, 185.220.101.34 port-scan, 89.248.165.52 http-probing, …
+
+# Real KPIs + decisions + alerts from the agent layer
+curl -s http://localhost:8203/api/activity
+#   → threats blocked 6 · alerts 24h 6 · 6 unique sources
+
+# Dashboard contains MD3 tokens + real source IPs + scenarios + the metrics link
+curl -s http://localhost:8203/ | grep -o '45.143.200.14\|crowdsecurity/ssh-bf\|Open CrowdSec metrics'
+
+# Agentic actions — approval gate then enforce
+curl -s -X POST http://localhost:8203/agent/run -d '{"action":"block_ip","ip":"1.2.3.4"}'      # → pending_approval
+curl -s -X POST http://localhost:8203/agent/run -d '{"action":"approve_block","ip":"1.2.3.4"}' # → real cscli ban
+sudo docker exec agentic-cores-crowdsec-1 cscli decisions list | grep 1.2.3.4                  # verify
+```
+
+## Replicating for other cores
+
+1. Point `CROWDSEC_*` at the new core's API + key.
+2. Replace `fetch_decisions()` / `fetch_alerts()` with the new core's endpoints and a
+   `compute_kpis` for that domain.
+3. Reuse `BASE_CSS` + the `_kpi_tiles` / `_status_banner` / `_alert_feed` /
+   `_decisions_table` render helpers.
+4. Make `/agent/run` actions deterministic core calls, with a human-approval gate on
+   anything that changes enforcement (the `block_ip` → `approve_block` pattern).
+```
