@@ -1,6 +1,6 @@
 _brief.md
-.sidekick/
-.sidekick-selfhosted/
+.sidekick*
+
 node_modules/
 __pycache__/
 *.pyc
