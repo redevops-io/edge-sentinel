@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from agents.config import GuardrailSettings
 from agents.guardrails import GuardrailDecision, Guardrails
 
 
@@ -83,6 +84,20 @@ class TestRedactSecrets:
         guardrails.redact_message(message)
         assert message["key"] == "sk-secret"
 
+    def test_redacts_nested_secrets(self, guardrails: Guardrails):
+        message = {
+            "outer": {"api_key": "sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234"},
+            "items": [{"token": "ghp_ABCD1234EFGH5678IJKL"}, "plain"],
+        }
+        redacted = guardrails.redact_message(message)
+        assert redacted["outer"]["api_key"] == "<redacted>"
+        assert redacted["items"][0]["token"] == "<redacted>"
+        assert redacted["items"][1] == "plain"
+
+    def test_redacts_shorter_realistic_key(self, guardrails: Guardrails):
+        message = {"api_key": "sk-proj-abc123DEF456"}
+        assert guardrails.redact_message(message)["api_key"] == "<redacted>"
+
 
 class TestEvaluateToolCall:
     """Confidence gating and human approval requirements."""
@@ -104,7 +119,47 @@ class TestEvaluateToolCall:
         assert decision.allow is False
         assert "Human approval" in decision.reason
 
-    def test_allows_critical_action_with_ticket(self, guardrails: Guardrails):
+    def test_rejects_arbitrary_model_supplied_ticket(self, guardrails: Guardrails):
+        # A model can pass any non-empty change_ticket; it must not be trusted
+        # unless it is on the configured allowlist.
+        decision = guardrails.evaluate_tool_call(
+            "opnsense_isolate_host",
+            {"hostname": "bad.local", "change_ticket": "CHG-123"},
+            confidence=0.9,
+        )
+        assert decision.allow is False
+        assert "Human approval" in decision.reason
+
+    def test_default_denies_critical_action_without_confidence(self, guardrails: Guardrails):
+        decision = guardrails.evaluate_tool_call(
+            "read_suricata_eve",
+            {},
+        )
+        # Non-critical with unknown confidence is permitted.
+        assert decision.allow is True
+
+        critical = Guardrails(
+            GuardrailSettings(
+                minimum_confidence=0.65,
+                require_human_for_isolation=True,
+                approved_change_tickets=frozenset({"CHG-123"}),
+            )
+        )
+        decision = critical.evaluate_tool_call(
+            "opnsense_isolate_host",
+            {"hostname": "bad.local", "change_ticket": "CHG-123"},
+        )
+        assert decision.allow is False
+        assert "Confidence required" in decision.reason
+
+    def test_allows_critical_action_with_allowlisted_ticket(self):
+        guardrails = Guardrails(
+            GuardrailSettings(
+                minimum_confidence=0.65,
+                require_human_for_isolation=True,
+                approved_change_tickets=frozenset({"CHG-123"}),
+            )
+        )
         decision = guardrails.evaluate_tool_call(
             "opnsense_isolate_host",
             {"hostname": "bad.local", "change_ticket": "CHG-123"},

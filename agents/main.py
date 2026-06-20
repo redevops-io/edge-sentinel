@@ -94,12 +94,17 @@ class AgentService:
         response.raise_for_status()
         return response.json()
 
-    async def _run_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+    async def _run_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        confidence: float | None = None,
+    ) -> str:
         handler = TOOL_HANDLERS.get(tool_name)
         if not handler:
             logger.warning("No handler for tool %s", tool_name)
             return f"Tool {tool_name} not available"
-        decision = self.guardrails.evaluate_tool_call(tool_name, arguments)
+        decision = self.guardrails.evaluate_tool_call(tool_name, arguments, confidence)
         if not decision.allow:
             return decision.reason
         return await handler(arguments, self.config)
@@ -124,11 +129,14 @@ class AgentService:
         triage_choice = triage_result["choices"][0]["message"]
         history.append({"phase": "alert_triage", "message": triage_choice})
 
+        # Confidence established during triage gates downstream critical actions.
+        triage_confidence = self._extract_confidence(triage_choice)
+
         follow_on_messages = triage_messages + [triage_choice]
 
         # Phase 1 tools
         for call in triage_choice.get("tool_calls", []) or []:
-            tool_result = await self._handle_tool_call(call, follow_on_messages)
+            tool_result = await self._handle_tool_call(call, follow_on_messages, triage_confidence)
             history.append({"phase": "alert_triage_tool", "tool": call, "result": tool_result})
             follow_on_messages.append(tool_result)
 
@@ -141,8 +149,9 @@ class AgentService:
         history.append({"phase": "threat_hunting", "message": hunting_choice})
         hunting_messages.append(hunting_choice)
 
+        hunting_confidence = self._extract_confidence(hunting_choice)
         for call in hunting_choice.get("tool_calls", []) or []:
-            tool_result = await self._handle_tool_call(call, hunting_messages)
+            tool_result = await self._handle_tool_call(call, hunting_messages, hunting_confidence)
             history.append({"phase": "threat_hunting_tool", "tool": call, "result": tool_result})
             hunting_messages.append(tool_result)
 
@@ -155,8 +164,15 @@ class AgentService:
         history.append({"phase": "remediation", "message": remediation_choice})
         remediation_messages.append(remediation_choice)
 
+        # Critical block/isolate actions happen here; gate them on the triage
+        # confidence (falling back to the remediation step's own confidence).
+        remediation_confidence = self._extract_confidence(remediation_choice)
+        if remediation_confidence is None:
+            remediation_confidence = triage_confidence
         for call in remediation_choice.get("tool_calls", []) or []:
-            tool_result = await self._handle_tool_call(call, remediation_messages)
+            tool_result = await self._handle_tool_call(
+                call, remediation_messages, remediation_confidence
+            )
             history.append({"phase": "remediation_tool", "tool": call, "result": tool_result})
             remediation_messages.append(tool_result)
 
@@ -186,6 +202,7 @@ class AgentService:
         self,
         call: Mapping[str, Any],
         messages: List[Dict[str, Any]],
+        confidence: float | None = None,
     ) -> Dict[str, Any]:
         name = call.get("function", {}).get("name") or call.get("name")
         arguments_raw = call.get("function", {}).get("arguments") or call.get("arguments", "{}")
@@ -193,10 +210,26 @@ class AgentService:
             arguments = json.loads(arguments_raw) if isinstance(arguments_raw, str) else arguments_raw
         except json.JSONDecodeError:
             arguments = {}
-        result = await self._run_tool(name or "", arguments or {})
+        result = await self._run_tool(name or "", arguments or {}, confidence)
         tool_message = {"role": "tool", "tool_call_id": call.get("id"), "content": result}
         messages.append(tool_message)
         return tool_message
+
+    @staticmethod
+    def _extract_confidence(choice: Mapping[str, Any]) -> float | None:
+        """Best-effort extraction of a model/triage confidence score.
+
+        Returns None when no confidence is reported, which causes
+        ``evaluate_tool_call`` to default-deny critical actions.
+        """
+
+        for source in (choice, choice.get("metadata") if isinstance(choice, Mapping) else None):
+            if isinstance(source, Mapping) and "confidence" in source:
+                try:
+                    return float(source["confidence"])
+                except (TypeError, ValueError):
+                    return None
+        return None
 
     async def register_with_harness(self, agent_id: str | None = None) -> Dict[str, Any]:
         """Register the service with the agent harness bus."""

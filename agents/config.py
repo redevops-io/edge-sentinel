@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import os
 import os.path
-from dataclasses import dataclass
-from typing import Final
+from dataclasses import dataclass, field
+from typing import Final, FrozenSet
 
 _DEFAULT_BASE_URL: Final[str] = "http://localhost:11434/v1"
 _DEFAULT_MODEL: Final[str] = "llama3.1"
@@ -50,15 +50,21 @@ class GuardrailSettings:
 
     minimum_confidence: float
     require_human_for_isolation: bool
+    approved_change_tickets: FrozenSet[str] = field(default_factory=frozenset)
 
     @classmethod
     def from_env(cls) -> "GuardrailSettings":
+        raw_tickets = os.environ.get("APPROVED_CHANGE_TICKETS", "")
+        approved = frozenset(
+            ticket.strip() for ticket in raw_tickets.split(",") if ticket.strip()
+        )
         return cls(
             minimum_confidence=float(os.environ.get("MIN_CONFIDENCE", "0.65")),
             require_human_for_isolation=os.environ.get(
                 "REQUIRE_HUMAN_FOR_ISOLATION", "true"
             ).lower()
             in {"1", "true", "yes"},
+            approved_change_tickets=approved,
         )
 
 
