@@ -711,9 +711,17 @@ def activity() -> JSONResponse:
     return JSONResponse(fetch_activity())
 
 
+_CR_BANNER = """<div style="position:sticky;top:0;z-index:9998;background:linear-gradient(90deg,#10201d,#17171a);border-bottom:1px solid #2f2f33;color:#e4e2e6;font:13px/1.4 Roboto,system-ui,sans-serif;padding:9px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="background:#4fd1c5;color:#08110f;font-weight:700;border-radius:5px;padding:2px 8px;font-size:11px;letter-spacing:.4px">CONTEXT RUNTIME</span><span style="background:#2f2f33;border-radius:5px;padding:2px 8px;font-size:11px;letter-spacing:.4px">DEMO</span><span style="color:#9b99a1">This demo app is plugged into <b style="color:#e4e2e6">Context Runtime</b>, which optimizes which alert sources to pull per incident — correct verdict vs cost (0.900 vs 0.800); tool-using + approval-gated. <a href="https://github.com/redevops-io/context-runtime" style="color:#4fd1c5;text-decoration:none">learn more \u2192</a></span></div>"""
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
-    return render(fetch_activity())
+    import re as _cr_re
+    page = render(fetch_activity())
+    page = _cr_re.sub(r"(<body[^>]*>)", lambda m: m.group(1) + _CR_BANNER, page, count=1)
+    if "_CR_BANNER" not in page:
+        page = _CR_BANNER + page
+    return page
 
 
 @app.post("/agent/run")
