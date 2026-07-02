@@ -59,7 +59,7 @@ if _ENV_FILE.exists():
 CROWDSEC_LAPI_URL = os.environ.get("CROWDSEC_LAPI_URL", "http://localhost:8086").rstrip("/")
 CROWDSEC_BOUNCER_KEY = os.environ.get("CROWDSEC_BOUNCER_KEY", "")
 CROWDSEC_CONTAINER = os.environ.get("CROWDSEC_CONTAINER", "agentic-cores-crowdsec-1")
-CROWDSEC_FRONT_URL = os.environ.get("CROWDSEC_FRONT_URL", "http://192.168.40.8:8086").rstrip("/")
+CROWDSEC_FRONT_URL = os.environ.get("CROWDSEC_FRONT_URL", "http://localhost:8086").rstrip("/")
 # How to invoke docker for `cscli` (alerts/bans). On the host this needs `sudo docker`;
 # inside the integrated container we run as root with the docker socket mounted, so
 # DOCKER_CMD="docker" (no sudo). Override via env.

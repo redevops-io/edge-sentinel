@@ -22,7 +22,7 @@ Usage:
 Env knobs:
     CROWDSEC_CONTAINER  docker container name (default: agentic-cores-crowdsec-1)
     CROWDSEC_LAPI_URL   LAPI base for the .env (default: http://localhost:8086)
-    CROWDSEC_FRONT_URL  metrics/LAPI link baked into the .env (default: http://192.168.40.8:8086)
+    CROWDSEC_FRONT_URL  metrics/LAPI link baked into the .env (default: http://localhost:8086)
     BOUNCER_NAME        bouncer credential name (default: summit-agent)
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ ENV_OUT = HERE / ".env"
 
 CONTAINER = os.environ.get("CROWDSEC_CONTAINER", "agentic-cores-crowdsec-1")
 CROWDSEC_LAPI_URL = os.environ.get("CROWDSEC_LAPI_URL", "http://localhost:8086")
-CROWDSEC_FRONT_URL = os.environ.get("CROWDSEC_FRONT_URL", "http://192.168.40.8:8086")
+CROWDSEC_FRONT_URL = os.environ.get("CROWDSEC_FRONT_URL", "http://localhost:8086")
 BOUNCER_NAME = os.environ.get("BOUNCER_NAME", "summit-agent")
 
 # `sudo` is required to talk to the docker socket on this host.
