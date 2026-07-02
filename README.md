@@ -1,3 +1,14 @@
+> ### Reference application for [Context Runtime](https://github.com/redevops-io/context-runtime)
+>
+> A focused AI system for **security operations**. Context Runtime ships a tenant that learns **which sources to pull per alert (CrowdSec · threat-intel · EDR)** — in its offline benchmark the learned policy scores **0.900 vs 0.800** against a always-full baseline ([`examples/soc_triage.py`](https://github.com/redevops-io/context-runtime/blob/main/examples/soc_triage.py)).
+>
+> ```
+> Context Runtime  →  ReDevOps RAG  →  Sidekick  →  Application logic
+> ```
+> One of the [ReDevOps](https://github.com/redevops-io) reference applications built on Context Runtime.
+
+---
+
 # edge-sentinel — agent layer + SOC dashboard over a real CrowdSec core
 
 A sibling of [`agents/billing`](../billing) (the reference vertical slice), same pattern,
